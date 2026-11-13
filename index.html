@@ -101,7 +101,248 @@ $('musicBtn').onclick=()=>{soundOn=!soundOn;if(soundOn){music.play().then(()=>{$
 function updateFullscreen(){const yes=!!document.fullscreenElement;document.body.classList.toggle('fullscreenMode',yes);$('fullBtn').textContent=yes?'⛶ Exit Full Screen':'⛶ Full Screen'}
 $('fullBtn').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else if(document.documentElement.requestFullscreen)await document.documentElement.requestFullscreen();else{document.body.classList.toggle('fullscreenMode');$('fullBtn').textContent=document.body.classList.contains('fullscreenMode')?'⛶ Exit Full Screen':'⛶ Full Screen'}}catch(e){document.body.classList.toggle('fullscreenMode');$('fullBtn').textContent=document.body.classList.contains('fullscreenMode')?'⛶ Exit Full Screen':'⛶ Full Screen'}};
 document.addEventListener('fullscreenchange',updateFullscreen);window.addEventListener('pagehide',()=>{if(flipTimer)clearInterval(flipTimer);audioStop(sfx);music.pause()});
-renderBoard();renderHistory();
+
+/* =========================================================
+   TEACHER KHEN COMMUNITY
+   RANDOM PICKER AUTOMATIC LESSON CONNECTOR
+   ========================================================= */
+
+const TK_RANDOM_PICKER = (() => {
+
+  const PREFIX = 'TK_RANDOMPICKER';
+
+  const COMMUNITY_ORIGINS = [
+    'https://teacherkhen.com',
+    'https://www.teacherkhen.com'
+  ];
+
+  let connected = false;
+
+  function send(type, extra = {}) {
+
+    if (!window.opener || window.opener.closed) {
+      return;
+    }
+
+    const origin = COMMUNITY_ORIGINS.find(
+      value => value === document.referrer &&
+        value.startsWith('https://')
+    );
+
+    // Use the known Community website origin.
+    window.opener.postMessage(
+      {
+        type,
+        ...extra
+      },
+      COMMUNITY_ORIGINS[0]
+    );
+  }
+
+  function validLesson(data) {
+
+    if (
+      !data ||
+      !Array.isArray(data.columns) ||
+      !Number.isInteger(Number(data.columnCount)) ||
+      Number(data.columnCount) < 1 ||
+      Number(data.columnCount) > 3 ||
+      data.columns.length < Number(data.columnCount)
+    ) {
+      return false;
+    }
+
+    return data.columns
+      .slice(0, Number(data.columnCount))
+      .every(column =>
+        Array.isArray(column) &&
+        column.length > 0 &&
+        column.every(item =>
+          item &&
+          typeof item.id === 'string' &&
+          (
+            item.kind === 'word' &&
+            typeof item.label === 'string' &&
+            item.label.trim().length > 0
+            ||
+            item.kind === 'image' &&
+            typeof item.src === 'string' &&
+            item.src.startsWith('data:image/')
+          )
+        )
+      );
+  }
+
+  function loadLesson(data) {
+
+    if (!validLesson(data)) {
+      throw new Error(
+        'Invalid Random Picker lesson data.'
+      );
+    }
+
+    if (spinning) {
+      clearInterval(flipTimer);
+      flipTimer = null;
+      spinning = false;
+      audioStop(sfx);
+    }
+
+    // Load the lesson's three columns.
+    columns = data.columns.slice(0, 3).map(
+      column => column.map(item => ({
+        id: item.id,
+        kind: item.kind,
+        label: item.label || '',
+        ...(item.kind === 'image'
+          ? { src: item.src }
+          : {})
+      }))
+    );
+
+    while (columns.length < 3) {
+      columns.push([]);
+    }
+
+    // Restore the selected column layout.
+    columnCount = Number(data.columnCount);
+
+    $('columnCount').value = columnCount;
+
+    // Restore independent elimination settings.
+    keepPicksByColumn = Array.isArray(
+      data.keepPicksByColumn
+    )
+      ? [0, 1, 2].map(
+          i => data.keepPicksByColumn[i] === true
+        )
+      : [false, false, false];
+
+    // Reset previous gameplay.
+    eliminated = new Set();
+    current = [null, null, null];
+    rounds = [];
+    roundCounter = 0;
+
+    // Close editor if open.
+    $('editDialog').classList.remove('open');
+
+    renderBoard();
+    renderHistory();
+
+    setStatus(
+      'Community lesson loaded! Your Random Picker is ready.'
+    );
+  }
+
+  function handleMessage(event) {
+
+    if (
+      event.source !== window.opener ||
+      !COMMUNITY_ORIGINS.includes(event.origin)
+    ) {
+      return;
+    }
+
+    const message = event.data;
+
+    if (!message || typeof message !== 'object') {
+      return;
+    }
+
+    if (message.type === PREFIX + '_LESSON') {
+
+      try {
+
+        loadLesson(message.lesson);
+
+        connected = true;
+
+        send(PREFIX + '_LOADED');
+
+      } catch (error) {
+
+        console.error(
+          'Random Picker Community loading error:',
+          error
+        );
+
+        send(PREFIX + '_ERROR', {
+          message:
+            error.message ||
+            'Unable to load Community lesson.'
+        });
+
+      }
+    }
+  }
+
+  function announceReady() {
+
+    if (
+      connected ||
+      !window.opener ||
+      window.opener.closed
+    ) {
+      return;
+    }
+
+    if (
+      !COMMUNITY_ORIGINS.includes(
+        document.referrer
+          ? new URL(document.referrer).origin
+          : ''
+      )
+    ) {
+      return;
+    }
+
+    send(PREFIX + '_READY');
+  }
+
+  window.addEventListener(
+    'message',
+    handleMessage
+  );
+
+  // Initialize original game first.
+  renderBoard();
+  renderHistory();
+
+  // Only activate when launched by Community.
+  if (
+    location.hash === '#tk-community' &&
+    window.opener
+  ) {
+
+    // Retry briefly in case the parent is still initializing.
+    let attempts = 0;
+
+    const readyTimer = setInterval(() => {
+
+      attempts++;
+
+      announceReady();
+
+      if (connected || attempts >= 20) {
+        clearInterval(readyTimer);
+      }
+
+    }, 500);
+
+  }
+
+  return {
+    loadLesson
+  };
+
+})();
+
+/* END RANDOM PICKER COMMUNITY CONNECTOR */
+</script>
+</body>
+</html>
+
 </script>
 </body>
 </html>
